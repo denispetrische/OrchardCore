@@ -3,7 +3,8 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using OrchardCore.Environment.Shell.Configuration;
 
-namespace OrchardCore.Search.Elasticsearch.Extensions;
+namespace OrchardCore.Search.Elasticsearch;
+
 internal static class ElasticsearchOptionsExtensions
 {
     internal static ElasticsearchOptions AddAnalyzers(this ElasticsearchOptions options, IConfigurationSection configuration)
@@ -16,7 +17,7 @@ internal static class ElasticsearchOptionsExtensions
             PropertyNameCaseInsensitive = true,
         });
 
-        if (analyzersObject != null)
+        if (analyzersObject is not null)
         {
             if (jsonNode is JsonObject jAnalyzers)
             {
@@ -37,7 +38,7 @@ internal static class ElasticsearchOptionsExtensions
             // When no analyzers are configured, we'll define a default analyzer.
             options.Analyzers.Add(ElasticsearchConstants.DefaultAnalyzer, new JsonObject
             {
-                ["type"] = "standard",
+                ["type"] = ElasticsearchConstants.DefaultAnalyzer,
             });
         }
 
@@ -54,7 +55,7 @@ internal static class ElasticsearchOptionsExtensions
             PropertyNameCaseInsensitive = true,
         });
 
-        if (filterObject != null)
+        if (filterObject is not null)
         {
             if (jsonNode is JsonObject jFilters)
             {
@@ -76,6 +77,7 @@ internal static class ElasticsearchOptionsExtensions
     internal static ElasticsearchOptions AddIndexPrefix(this ElasticsearchOptions options, IConfigurationSection configuration)
     {
         options.IndexPrefix = configuration.GetValue<string>(nameof(options.IndexPrefix));
+
         return options;
     }
 }
