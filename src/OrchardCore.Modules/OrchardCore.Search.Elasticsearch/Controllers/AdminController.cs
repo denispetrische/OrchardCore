@@ -42,6 +42,7 @@ public sealed class AdminController : Controller
     private readonly IContentDefinitionManager _contentDefinitionManager;
     private readonly IAuthorizationService _authorizationService;
     private readonly IElasticQueryService _queryService;
+    private readonly ICustomElasticQueryService _customElasticQueryService;
     private readonly ElasticIndexManager _elasticIndexManager;
     private readonly ElasticIndexingService _elasticIndexingService;
     private readonly ElasticIndexSettingsService _elasticIndexSettingsService;
@@ -64,6 +65,7 @@ public sealed class AdminController : Controller
         IContentDefinitionManager contentDefinitionManager,
         IAuthorizationService authorizationService,
         IElasticQueryService queryService,
+        ICustomElasticQueryService customElasticQueryService,
         ElasticIndexManager elasticIndexManager,
         ElasticIndexingService elasticIndexingService,
         ElasticIndexSettingsService elasticIndexSettingsService,
@@ -84,6 +86,7 @@ public sealed class AdminController : Controller
         _contentDefinitionManager = contentDefinitionManager;
         _authorizationService = authorizationService;
         _queryService = queryService;
+        _customElasticQueryService = customElasticQueryService;
         _elasticIndexManager = elasticIndexManager;
         _elasticIndexingService = elasticIndexingService;
         _elasticIndexSettingsService = elasticIndexSettingsService;
@@ -520,6 +523,89 @@ public sealed class AdminController : Controller
         try
         {
             var elasticTopDocs = await _queryService.SearchAsync(model.IndexName, tokenizedContent);
+
+            if (elasticTopDocs != null)
+            {
+                model.Documents = elasticTopDocs.TopDocs.Where(x => x != null);
+                model.Fields = elasticTopDocs.Fields;
+                model.Count = elasticTopDocs.Count;
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error while executing query");
+            ModelState.AddModelError(nameof(model.DecodedQuery), S["Invalid query : {0}", e.Message]);
+        }
+
+        stopwatch.Stop();
+        model.Elapsed = stopwatch.Elapsed;
+        return View(model);
+    }
+
+    public async Task<IActionResult> CustomQuery(string indexName, string query)
+    {
+        if (!_elasticConnectionOptions.FileConfigurationExists())
+        {
+            return NotConfigured();
+        }
+
+        return await CustomQuery(new AdminQueryViewModel
+        {
+            IndexName = indexName,
+            DecodedQuery = string.IsNullOrWhiteSpace(query) ? string.Empty : System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(query))
+        });
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> CustomQuery(AdminQueryViewModel model)
+    {
+        if (!await _authorizationService.AuthorizeAsync(User, Permissions.ManageElasticIndexes))
+        {
+            return Forbid();
+        }
+
+        if (!_elasticConnectionOptions.FileConfigurationExists())
+        {
+            return BadRequest();
+        }
+
+        //model.Indices = (await _elasticIndexSettingsService.GetSettingsAsync()).Select(x => x.IndexName).ToArray();
+
+        // Can't query if there are no indices.
+        //if (model.Indices.Length == 0)
+        //{
+        //    return RedirectToAction(nameof(Index));
+        //}
+
+        if (string.IsNullOrEmpty(model.IndexName))
+        {
+            model.IndexName = model.Indices[0];
+        }
+
+        //if (!await _elasticIndexManager.ExistsAsync(model.IndexName))
+        //{
+        //    return NotFound();
+        //}
+
+        if (string.IsNullOrWhiteSpace(model.DecodedQuery))
+        {
+            return View(model);
+        }
+
+        if (string.IsNullOrEmpty(model.Parameters))
+        {
+            model.Parameters = "{ }";
+        }
+
+        var stopwatch = new Stopwatch();
+        stopwatch.Start();
+
+        var parameters = JConvert.DeserializeObject<Dictionary<string, object>>(model.Parameters);
+        var tokenizedContent = await _liquidTemplateManager.RenderStringAsync(model.DecodedQuery, _javaScriptEncoder, parameters.Select(x => new KeyValuePair<string, FluidValue>(x.Key, FluidValue.Create(x.Value, _templateOptions.Value))));
+
+        try
+        {
+            var elasticTopDocs = await _customElasticQueryService.SearchAsync(model.IndexName, tokenizedContent);
 
             if (elasticTopDocs != null)
             {
